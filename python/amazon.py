@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import time
 import urllib2
+import xml.etree.ElementTree as ET
 
 def import_name():
     return 'amazon'
@@ -50,5 +51,32 @@ def generate_func_item_lookup(key):
                     'Operation=ItemLookup',
                     'AssociateTag=bottomlessboo-20',
                     'AWSAccessKeyId=AKIAJOH5BFK3U2WGKXUQ',
-                    'ResponseGroup=Offers', ]
+                    'ResponseGroup=Images%2COffers', ]
     return generate_func_get_url(key, static_args)
+
+def extract_asins_from_search(data, price_threshold=1.00):
+    root = ET.fromstring(data)
+
+    # extract the xmlns (this is kind of rubbish)
+    if not root.tag.startswith('{'):
+        return []
+
+    def prefix(xmlns, tags):
+        return '/'.join( [ '{}{}'.format(xmlns, xx) for xx in tags ] )
+    prefix = functools.partial(prefix, root.tag.split('}', 1)[0] + '}')
+
+    isvalid = root.find(prefix([ 'Items', 'Request', 'IsValid', ]))
+    if isvalid is not None: isvalid = isvalid.text == 'True' # compare against the string 'True'
+
+    asins = []
+    if isvalid:
+        items = root.findall(prefix([ 'Items', 'Item', ]))
+        for item in items:
+            asin = item.find(prefix([ 'ASIN', ]))
+            price = item.find(prefix( [ 'OfferSummary', 'LowestUsedPrice', 'FormattedPrice', ] ))
+            if asin is not None and price is not None:
+                price = float(price.text.replace('$',''))
+                if price <= price_threshold:
+                    asins.append(asin.text)
+    return asins
+    
